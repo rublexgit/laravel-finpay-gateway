@@ -6,7 +6,7 @@ use Finpay\Services\FinpayGatewayService;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @method static array initiatePayment(array $customer, array $order, string $callbackUrl)
+ * @method static array initiatePayment(\Finpay\Data\CustomerData $customer, \Finpay\Data\OrderData $order, string $userCallbackUrl)
  * @method static array verifyPayment(string $transactionId)
  * @method static array getPaymentStatus(string $transactionId)
  *

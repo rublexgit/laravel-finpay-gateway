@@ -31,9 +31,33 @@ php artisan vendor:publish --provider="Finpay\FinpayServiceProvider" --tag="finp
 Add credentials to your `.env` file:
 
 ```env
-FINPAY_BASE_URL=
+FINPAY_BASE_URL=https://devo.finnet.co.id
 FINPAY_MERCHANT_ID=
 FINPAY_MERCHANT_KEY=
+```
+
+## Quick Start
+
+```php
+use Finpay\Data\CustomerData;
+use Finpay\Data\OrderData;
+use Finpay\Facades\Finpay;
+
+$response = Finpay::initiatePayment(
+    new CustomerData(
+        email: 'hajar.finnet@gmail.com',
+        firstName: 'Hajar',
+        lastName: 'Ismail',
+        mobilePhone: '+6281286288844'
+    ),
+    new OrderData(
+        id: 'INV-1774369486',
+        amount: '10',
+        currency: 'EUR',
+        description: 'Testing'
+    ),
+    userCallbackUrl: 'https://example.com/payment/final-callback'
+);
 ```
 
 ## Documentation
