@@ -20,6 +20,15 @@ class FinpayGatewayService
             throw new InvalidArgumentException('User callback URL is invalid.');
         }
 
+        $missingConfigKeys = $this->getMissingConfigKeys();
+        if ($missingConfigKeys !== []) {
+            return [
+                'responseCode' => '5000002',
+                'responseMessage' => 'Finpay configuration is missing.',
+                'missingConfig' => $missingConfigKeys,
+            ];
+        }
+
         $this->storeUserCallbackUrl($order->getId(), $userCallbackUrl);
 
         $response = Http::acceptJson()->asJson()
@@ -99,5 +108,23 @@ class FinpayGatewayService
     private function callbackCacheKey(string $orderId): string
     {
         return 'finpay:callback:' . $orderId;
+    }
+
+    private function getMissingConfigKeys(): array
+    {
+        $requiredConfig = [
+            'FINPAY_BASE_URL' => config('finpay.base_url'),
+            'FINPAY_MERCHANT_ID' => config('finpay.merchant_id'),
+            'FINPAY_MERCHANT_KEY' => config('finpay.merchant_key'),
+        ];
+
+        $missingKeys = [];
+        foreach ($requiredConfig as $key => $value) {
+            if (!is_string($value) || trim($value) === '') {
+                $missingKeys[] = $key;
+            }
+        }
+
+        return $missingKeys;
     }
 }
