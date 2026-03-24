@@ -1,0 +1,41 @@
+{
+    "name": "rublex/laravel-finpay-gateway",
+    "description": "A Laravel payment gateway package for Finpay",
+    "version": "1.0.0",
+    "keywords": [
+        "rublex",
+        "finpay",
+        "payment",
+        "gateway",
+        "laravel"
+    ],
+    "license": "MIT",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "Finpay\\": "src/"
+        }
+    },
+    "require": {
+        "illuminate/support": "*",
+        "illuminate/container": "*",
+        "illuminate/contracts": "*",
+        "illuminate/http": "*",
+        "illuminate/config": "*",
+        "illuminate/routing": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "*"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Finpay\\FinpayServiceProvider"
+            ],
+            "aliases": {
+                "Finpay": "Finpay\\Facades\\Finpay"
+            }
+        }
+    }
+}
