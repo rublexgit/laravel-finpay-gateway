@@ -83,9 +83,6 @@ $result = $gateway->initiate(new PaymentRequestData(
             'mobilePhone' => '+6281286288844',
         ],
         'order' => [
-            'id' => 'INV-1774369486',
-            'amount' => '10',
-            'currency' => 'EUR',
             'description' => 'Testing',
         ],
     ])

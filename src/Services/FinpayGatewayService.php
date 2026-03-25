@@ -46,12 +46,8 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
         $this->storeUserCallbackUrl($request->orderId(), $request->callbackUrl());
 
         $responsePayload = $this->sendInitiateRequest([
-            'customer' => $request->meta()->get('customer', []),
-            'order' => $request->meta()->get('order', [
-                'id' => $request->orderId(),
-                'amount' => $request->amount(),
-                'currency' => $request->currency(),
-            ]),
+            'customer' => $this->resolveCustomerPayload($request),
+            'order' => $this->resolveOrderPayload($request),
             'url' => [
                 'callbackUrl' => $this->resolveGatewayCallbackUrl(),
             ],
@@ -155,6 +151,33 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
     private function callbackCacheKey(string $orderId): string
     {
         return 'finpay:callback:' . $orderId;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function resolveCustomerPayload(PaymentRequestData $request): array
+    {
+        $customerPayload = $request->meta()->get('customer', []);
+
+        return is_array($customerPayload) ? $customerPayload : [];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function resolveOrderPayload(PaymentRequestData $request): array
+    {
+        $orderOverrides = $request->meta()->get('order', []);
+        if (!is_array($orderOverrides)) {
+            $orderOverrides = [];
+        }
+
+        return array_replace([
+            'id' => $request->orderId(),
+            'amount' => $request->amount(),
+            'currency' => $request->currency(),
+        ], $orderOverrides);
     }
 
     /**

@@ -16,6 +16,34 @@ use Rublex\CoreGateway\Exceptions\ValidationException;
 
 final class FinpayGatewayServiceTest extends TestCase
 {
+    public function test_order_payload_uses_request_fields_and_allows_meta_overrides(): void
+    {
+        $service = new FinpayGatewayService();
+        $resolveOrderPayload = new \ReflectionMethod(FinpayGatewayService::class, 'resolveOrderPayload');
+        $resolveOrderPayload->setAccessible(true);
+
+        $payload = $resolveOrderPayload->invoke($service, new PaymentRequestData(
+            gatewayCode: 'finpay',
+            orderId: 'INV-555',
+            amount: '15',
+            currency: 'EUR',
+            callbackUrl: 'https://merchant.example/callback',
+            meta: new DynamicDataBag([
+                'order' => [
+                    'description' => 'Testing',
+                ],
+            ])
+        ));
+
+        self::assertIsArray($payload);
+        self::assertSame([
+            'id' => 'INV-555',
+            'amount' => '15',
+            'currency' => 'EUR',
+            'description' => 'Testing',
+        ], $payload);
+    }
+
     public function test_backward_compatible_wrapper_maps_to_contract_request(): void
     {
         $service = new class extends FinpayGatewayService {
