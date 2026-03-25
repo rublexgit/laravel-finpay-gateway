@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Finpay\Data;
 
-use InvalidArgumentException;
+use Rublex\CoreGateway\Exceptions\ValidationException;
 
 class CustomerData
 {
@@ -25,14 +27,34 @@ class CustomerData
         ];
     }
 
+    public function email(): string
+    {
+        return $this->email;
+    }
+
+    public function firstName(): string
+    {
+        return $this->firstName;
+    }
+
+    public function lastName(): string
+    {
+        return $this->lastName;
+    }
+
+    public function mobilePhone(): string
+    {
+        return $this->mobilePhone;
+    }
+
     private function validate(): void
     {
         if (filter_var($this->email, FILTER_VALIDATE_EMAIL) === false) {
-            throw new InvalidArgumentException('Customer email is invalid.');
+            throw new ValidationException('Customer email is invalid.');
         }
 
         if ($this->firstName === '' || $this->lastName === '' || $this->mobilePhone === '') {
-            throw new InvalidArgumentException('Customer firstName, lastName and mobilePhone are required.');
+            throw new ValidationException('Customer firstName, lastName and mobilePhone are required.');
         }
     }
 }

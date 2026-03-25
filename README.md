@@ -60,6 +60,43 @@ $response = Finpay::initiatePayment(
 );
 ```
 
+## Contract-Based Usage
+
+```php
+use Finpay\Services\FinpayGatewayService;
+use Rublex\CoreGateway\Data\DynamicDataBag;
+use Rublex\CoreGateway\Data\PaymentRequestData;
+
+$gateway = app(FinpayGatewayService::class);
+
+$result = $gateway->initiate(new PaymentRequestData(
+    gatewayCode: $gateway->code(),
+    orderId: 'INV-1774369486',
+    amount: '10',
+    currency: 'EUR',
+    callbackUrl: 'https://example.com/payment/final-callback',
+    meta: new DynamicDataBag([
+        'customer' => [
+            'email' => 'hajar.finnet@gmail.com',
+            'firstName' => 'Hajar',
+            'lastName' => 'Ismail',
+            'mobilePhone' => '+6281286288844',
+        ],
+        'order' => [
+            'id' => 'INV-1774369486',
+            'amount' => '10',
+            'currency' => 'EUR',
+            'description' => 'Testing',
+        ],
+    ])
+));
+```
+
+## Backward Compatibility
+
+- `initiatePayment(CustomerData, OrderData, string)` remains available and now wraps `initiate(PaymentRequestData)`.
+- `verifyPayment()` and `getPaymentStatus()` remain explicit package methods and still throw not-implemented exceptions.
+
 ## Documentation
 
 For installation and usage instructions, see [USAGE.md](USAGE.md).

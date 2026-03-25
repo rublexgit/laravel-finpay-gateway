@@ -1,9 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Finpay\Exceptions;
 
-use RuntimeException;
+use Rublex\CoreGateway\Exceptions\UnsupportedCapabilityException;
 
-class NotImplementedException extends RuntimeException
+class NotImplementedException extends UnsupportedCapabilityException
 {
+    public function __construct(string $capability = 'unknown')
+    {
+        parent::__construct(sprintf('Capability "%s" is not implemented by Finpay gateway.', $capability));
+    }
 }

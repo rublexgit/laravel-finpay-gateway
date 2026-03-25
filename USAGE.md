@@ -46,6 +46,43 @@ $response = Finpay::initiatePayment(
 );
 ```
 
+## Contract-Based Usage
+
+```php
+use Finpay\Services\FinpayGatewayService;
+use Rublex\CoreGateway\Data\DynamicDataBag;
+use Rublex\CoreGateway\Data\PaymentRequestData;
+
+$gateway = app(FinpayGatewayService::class);
+
+$result = $gateway->initiate(new PaymentRequestData(
+    gatewayCode: $gateway->code(),
+    orderId: 'INV-1774369486',
+    amount: '10',
+    currency: 'EUR',
+    callbackUrl: 'https://your-app.example.com/finpay/final-callback',
+    meta: new DynamicDataBag([
+        'customer' => [
+            'email' => 'hajar.finnet@gmail.com',
+            'firstName' => 'Hajar',
+            'lastName' => 'Ismail',
+            'mobilePhone' => '+6281286288844',
+        ],
+        'order' => [
+            'id' => 'INV-1774369486',
+            'amount' => '10',
+            'currency' => 'EUR',
+            'description' => 'Testing',
+        ],
+    ])
+));
+```
+
+## Migration note
+
+- Existing facade and wrapper method signatures are unchanged.
+- New integrations can use the shared core contract DTOs directly.
+
 ### Callback flow
 
 - Finpay sends callback to package route: `POST /finpay/callback` (`finpay.callback`).
