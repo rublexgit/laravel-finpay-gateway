@@ -70,7 +70,18 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
             ])
         );
 
-        return $this->initiate($request)->raw()->all();
+        $result = $this->initiate($request);
+
+        return [
+            'status' => $result->status()->value,
+            'responseCode' => $result->meta()->get('responseCode'),
+            'responseMessage' => $result->meta()->get('responseMessage'),
+            'orderId' => $order->getId(),
+            'transactionId' => $result->transactionId(),
+            'redirect_url' => $result->redirectUrl(),
+            'gatewayReference' => $result->gatewayReference(),
+            'raw' => $result->raw()->all(),
+        ];
     }
 
     public function verifyPayment(string $transactionId): array
@@ -187,7 +198,7 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
     {
         $status = $this->resolveInitStatus($response);
         $transactionId = $this->extractString($response, ['transactionId', 'trxId', 'transaction.id']);
-        $redirectUrl = $this->extractString($response, ['redirectUrl', 'paymentUrl', 'url.redirectUrl']);
+        $redirectUrl = $this->extractString($response, ['redirectUrl', 'redirecturl', 'paymentUrl', 'url.redirectUrl']);
         $gatewayReference = $this->extractString($response, ['gatewayReference', 'referenceNo', 'invoiceNo']);
 
         return new PaymentInitResultData(
