@@ -14,13 +14,17 @@ use Rublex\CoreGateway\Data\PaymentInitResultData;
 use Rublex\CoreGateway\Data\PaymentRequestData;
 use Rublex\CoreGateway\Enums\GatewayType;
 use Rublex\CoreGateway\Enums\PaymentStatus;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\URL;
 
 class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterface
 {
     private const INITIATE_PATH = '/pg/payment/card/initiate';
     private const REQUEST_TIMEOUT_SECONDS = 30;
-    private const CALLBACK_TTL_MINUTES = 120;
+    private const TRANSACTIONS_TABLE = 'finpay_transactions';
 
     public function code(): string
     {
@@ -52,6 +56,7 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
                 'callbackUrl' => $this->resolveGatewayCallbackUrl(),
             ],
         ]);
+        $this->storeInitTransaction($request->orderId(), $responsePayload);
 
         return $this->mapInitResponseToResult($responsePayload);
     }
@@ -96,20 +101,59 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
 
     public function getUserCallbackUrlForOrder(string $orderId): ?string
     {
-        $value = cache()->get($this->callbackCacheKey($orderId));
+        $value = DB::table(self::TRANSACTIONS_TABLE)
+            ->where('order_id', $orderId)
+            ->value('callback_url');
 
-        return is_string($value) && $value !== '' ? $value : null;
+        return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     public function forgetUserCallbackUrlForOrder(string $orderId): void
     {
-        cache()->forget($this->callbackCacheKey($orderId));
+        DB::table(self::TRANSACTIONS_TABLE)
+            ->where('order_id', $orderId)
+            ->update([
+                'callback_url' => null,
+                'updated_at' => Carbon::now(),
+            ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function storeCallbackResult(
+        string $orderId,
+        array $payload,
+        bool $forwarded,
+        ?int $forwardStatus,
+        ?string $error = null
+    ): void {
+        $now = Carbon::now();
+        DB::table(self::TRANSACTIONS_TABLE)->upsert([
+            [
+                'order_id' => $orderId,
+                'callback_payload' => $payload,
+                'forwarded' => $forwarded,
+                'forward_status' => $forwardStatus,
+                'forward_error' => $this->normalizeNullableString($error),
+                'forwarded_at' => $forwarded ? $now : null,
+                'updated_at' => $now,
+                'created_at' => $now,
+            ],
+        ], ['order_id'], [
+            'callback_payload',
+            'forwarded',
+            'forward_status',
+            'forward_error',
+            'forwarded_at',
+            'updated_at',
+        ]);
     }
 
     private function buildAuthorizationHeader(): string
     {
-        $merchantId = (string) config('finpay.merchant_id');
-        $merchantKey = (string) config('finpay.merchant_key');
+        $merchantId = (string) Config::get('finpay.merchant_id');
+        $merchantKey = (string) Config::get('finpay.merchant_key');
 
         return 'Basic ' . base64_encode($merchantId . ':' . $merchantKey);
     }
@@ -140,28 +184,64 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
 
     private function buildInitiateUrl(): string
     {
-        $baseUrl = rtrim((string) config('finpay.base_url'), '/');
+        $baseUrl = rtrim((string) Config::get('finpay.base_url'), '/');
 
         return $baseUrl . self::INITIATE_PATH;
     }
 
     private function resolveGatewayCallbackUrl(): string
     {
-        return route('finpay.callback');
+        return URL::route('finpay.callback');
     }
 
     private function storeUserCallbackUrl(string $orderId, string $userCallbackUrl): void
     {
-        cache()->put(
-            $this->callbackCacheKey($orderId),
-            $userCallbackUrl,
-            now()->addMinutes(self::CALLBACK_TTL_MINUTES)
-        );
+        $now = Carbon::now();
+        DB::table(self::TRANSACTIONS_TABLE)->upsert([
+            [
+                'order_id' => $orderId,
+                'callback_url' => $userCallbackUrl,
+                'updated_at' => $now,
+                'created_at' => $now,
+            ],
+        ], ['order_id'], [
+            'callback_url',
+            'updated_at',
+        ]);
     }
 
-    private function callbackCacheKey(string $orderId): string
+    /**
+     * @param array<string, mixed> $responsePayload
+     */
+    private function storeInitTransaction(string $orderId, array $responsePayload): void
     {
-        return 'finpay:callback:' . $orderId;
+        $now = Carbon::now();
+        DB::table(self::TRANSACTIONS_TABLE)->upsert([
+            [
+                'order_id' => $orderId,
+                'status' => $this->resolveInitStatus($responsePayload)->value,
+                'response_code' => $this->extractString($responsePayload, ['responseCode']),
+                'response_message' => $this->extractString($responsePayload, ['responseMessage']),
+                'transaction_id' => $this->extractString($responsePayload, ['transactionId', 'trxId', 'transaction.id']),
+                'gateway_reference' => $this->extractString($responsePayload, ['gatewayReference', 'referenceNo', 'invoiceNo']),
+                'provider_payload' => $responsePayload,
+                'updated_at' => $now,
+                'created_at' => $now,
+            ],
+        ], ['order_id'], [
+            'status',
+            'response_code',
+            'response_message',
+            'transaction_id',
+            'gateway_reference',
+            'provider_payload',
+            'updated_at',
+        ]);
+    }
+
+    private function normalizeNullableString(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     /**
@@ -268,9 +348,9 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
     private function getMissingConfigKeys(): array
     {
         $requiredConfig = [
-            'FINPAY_BASE_URL' => config('finpay.base_url'),
-            'FINPAY_MERCHANT_ID' => config('finpay.merchant_id'),
-            'FINPAY_MERCHANT_KEY' => config('finpay.merchant_key'),
+            'FINPAY_BASE_URL' => Config::get('finpay.base_url'),
+            'FINPAY_MERCHANT_ID' => Config::get('finpay.merchant_id'),
+            'FINPAY_MERCHANT_KEY' => Config::get('finpay.merchant_key'),
         ];
 
         $missingKeys = [];

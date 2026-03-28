@@ -13,10 +13,11 @@ class FinpayServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->publishes([
-            __DIR__ . '/config/finpay.php' => config_path('finpay.php'),
+            __DIR__ . '/config/finpay.php' => $this->app->configPath('finpay.php'),
         ], 'finpay-config');
 
         $this->loadRoutesFrom(__DIR__ . '/../routes/routes.php');
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
     }
 
     public function register(): void

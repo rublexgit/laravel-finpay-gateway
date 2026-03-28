@@ -17,7 +17,7 @@ class CallbackController
         $payload = $request->all();
         $orderId = $this->extractOrderId($payload);
         if ($orderId === null) {
-            return response()->json([
+            return new JsonResponse([
                 'responseCode' => '4000001',
                 'responseMessage' => 'Order ID not found in callback payload.',
             ], 400);
@@ -25,7 +25,7 @@ class CallbackController
 
         $callbackUrl = $finpayGatewayService->getUserCallbackUrlForOrder($orderId);
         if ($callbackUrl === null) {
-            return response()->json([
+            return new JsonResponse([
                 'responseCode' => '4040001',
                 'responseMessage' => 'User callback URL not found for order ID.',
                 'orderId' => $orderId,
@@ -38,7 +38,15 @@ class CallbackController
                 ->timeout(self::FORWARD_TIMEOUT_SECONDS)
                 ->post($callbackUrl, $payload);
         } catch (Throwable $exception) {
-            return response()->json([
+            $finpayGatewayService->storeCallbackResult(
+                $orderId,
+                $payload,
+                false,
+                null,
+                $exception->getMessage()
+            );
+
+            return new JsonResponse([
                 'responseCode' => '5000001',
                 'responseMessage' => 'Callback forwarding failed.',
                 'orderId' => $orderId,
@@ -47,11 +55,18 @@ class CallbackController
             ], 500);
         }
 
+        $finpayGatewayService->storeCallbackResult(
+            $orderId,
+            $payload,
+            $forwardResponse->successful(),
+            $forwardResponse->status()
+        );
+
         if ($forwardResponse->successful()) {
             $finpayGatewayService->forgetUserCallbackUrlForOrder($orderId);
         }
 
-        return response()->json([
+        return new JsonResponse([
             'responseCode' => '2000000',
             'responseMessage' => 'Callback processed.',
             'orderId' => $orderId,
