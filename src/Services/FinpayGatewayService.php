@@ -132,7 +132,7 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
         DB::table(self::TRANSACTIONS_TABLE)->upsert([
             [
                 'order_id' => $orderId,
-                'callback_payload' => $payload,
+                'callback_payload' => $this->encodeJsonPayload($payload),
                 'forwarded' => $forwarded,
                 'forward_status' => $forwardStatus,
                 'forward_error' => $this->normalizeNullableString($error),
@@ -224,7 +224,7 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
                 'response_message' => $this->extractString($responsePayload, ['responseMessage']),
                 'transaction_id' => $this->extractString($responsePayload, ['transactionId', 'trxId', 'transaction.id']),
                 'gateway_reference' => $this->extractString($responsePayload, ['gatewayReference', 'referenceNo', 'invoiceNo']),
-                'provider_payload' => $responsePayload,
+                'provider_payload' => $this->encodeJsonPayload($responsePayload),
                 'updated_at' => $now,
                 'created_at' => $now,
             ],
@@ -237,6 +237,16 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
             'provider_payload',
             'updated_at',
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function encodeJsonPayload(array $payload): string
+    {
+        $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return is_string($encoded) ? $encoded : '{}';
     }
 
     private function normalizeNullableString(mixed $value): ?string
