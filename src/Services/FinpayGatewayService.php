@@ -8,22 +8,23 @@ use Finpay\Data\CustomerData;
 use Finpay\Data\OrderData;
 use Finpay\Exceptions\NotImplementedException;
 use Rublex\CoreGateway\Contracts\Common\GatewayInterface;
+use Rublex\CoreGateway\Contracts\Http\ConfiguresGatewayHttpInterface;
 use Rublex\CoreGateway\Contracts\Payment\InitiatesPaymentInterface;
 use Rublex\CoreGateway\Data\DynamicDataBag;
 use Rublex\CoreGateway\Data\PaymentInitResultData;
 use Rublex\CoreGateway\Data\PaymentRequestData;
 use Rublex\CoreGateway\Enums\GatewayType;
 use Rublex\CoreGateway\Enums\PaymentStatus;
+use Rublex\CoreGateway\Support\GatewayHttpOptions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\URL;
 
-class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterface
+class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterface, ConfiguresGatewayHttpInterface
 {
     private const INITIATE_PATH = '/pg/payment/card/initiate';
-    private const REQUEST_TIMEOUT_SECONDS = 30;
     private const TRANSACTIONS_TABLE = 'finpay_transactions';
 
     public function code(): string
@@ -99,6 +100,13 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
         throw new NotImplementedException('queryStatus');
     }
 
+    public function gatewayHttpOptions(): array
+    {
+        return GatewayHttpOptions::fromConfig(
+            (array) Config::get('finpay.http', [])
+        );
+    }
+
     public function getUserCallbackUrlForOrder(string $orderId): ?string
     {
         $value = DB::table(self::TRANSACTIONS_TABLE)
@@ -168,7 +176,8 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
         $response = Http::acceptJson()->asJson()
             ->withHeaders([
                 'Authorization' => $this->buildAuthorizationHeader(),
-            ])->timeout(self::REQUEST_TIMEOUT_SECONDS)
+            ])
+            ->withOptions($this->gatewayHttpOptions())
             ->post($this->buildInitiateUrl(), $payload);
 
         $decoded = $response->json();

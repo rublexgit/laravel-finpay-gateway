@@ -7,6 +7,10 @@ namespace Finpay\Tests;
 use Finpay\Data\CustomerData;
 use Finpay\Data\OrderData;
 use Finpay\Services\FinpayGatewayService;
+use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Rublex\CoreGateway\Data\DynamicDataBag;
 use Rublex\CoreGateway\Data\PaymentInitResultData;
@@ -16,6 +20,15 @@ use Rublex\CoreGateway\Exceptions\ValidationException;
 
 final class FinpayGatewayServiceTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $app = new Container();
+        $app->instance('config', new Repository([]));
+        Facade::setFacadeApplication($app);
+    }
+
     public function test_order_payload_uses_request_fields_and_allows_meta_overrides(): void
     {
         $service = new FinpayGatewayService();
@@ -127,5 +140,54 @@ final class FinpayGatewayServiceTest extends TestCase
             new OrderData('INV-1002', '10.00', 'EUR', 'Order payment'),
             'invalid-callback-url'
         );
+    }
+
+    public function test_gateway_http_options_returns_normalized_options_from_config(): void
+    {
+        Config::set('finpay.http', [
+            'timeout' => 60,
+            'connect_timeout' => 5,
+            'proxy' => 'http://proxy.example.com:8080',
+            'verify' => false,
+        ]);
+
+        $options = (new FinpayGatewayService())->gatewayHttpOptions();
+
+        self::assertSame(60.0, $options['timeout']);
+        self::assertSame(5.0, $options['connect_timeout']);
+        self::assertSame('http://proxy.example.com:8080', $options['proxy']);
+        self::assertFalse($options['verify']);
+    }
+
+    public function test_gateway_http_options_supports_protocol_array_proxy(): void
+    {
+        Config::set('finpay.http.proxy', [
+            'http' => 'http://proxy.example.com:3128',
+            'https' => 'http://proxy.example.com:3129',
+            'no' => ['localhost'],
+        ]);
+
+        $options = (new FinpayGatewayService())->gatewayHttpOptions();
+
+        self::assertSame([
+            'http' => 'http://proxy.example.com:3128',
+            'https' => 'http://proxy.example.com:3129',
+            'no' => ['localhost'],
+        ], $options['proxy']);
+    }
+
+    public function test_gateway_http_options_omits_null_proxy(): void
+    {
+        Config::set('finpay.http', [
+            'timeout' => 30,
+            'connect_timeout' => 10,
+            'proxy' => null,
+            'verify' => true,
+        ]);
+
+        $options = (new FinpayGatewayService())->gatewayHttpOptions();
+
+        self::assertArrayNotHasKey('proxy', $options);
+        self::assertSame(30.0, $options['timeout']);
     }
 }
