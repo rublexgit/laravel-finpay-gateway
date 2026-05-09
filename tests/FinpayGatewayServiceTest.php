@@ -190,4 +190,160 @@ final class FinpayGatewayServiceTest extends TestCase
         self::assertArrayNotHasKey('proxy', $options);
         self::assertSame(30.0, $options['timeout']);
     }
+
+    // -------------------------------------------------------------------------
+    // Signature verification
+    // -------------------------------------------------------------------------
+
+    public function test_verify_finpay_signature_accepts_valid_hmac(): void
+    {
+        $service     = new FinpayGatewayService();
+        $merchantKey = 'test-merchant-secret';
+
+        $fields = [
+            'merchant' => ['id' => 'MID001'],
+            'order'    => ['id' => 'ORD-123', 'reference' => 'REF-123', 'amount' => '150000', 'currency' => 'IDR'],
+            'result'   => ['payment' => ['status' => 'PAID', 'statusDesc' => 'Success', 'datetime' => '2026-01-01T00:00:00Z']],
+        ];
+
+        $signature = hash_hmac(
+            'sha512',
+            json_encode($fields, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            $merchantKey
+        );
+
+        self::assertTrue($service->verifyFinpaySignature($fields, $signature, $merchantKey));
+    }
+
+    public function test_verify_finpay_signature_rejects_wrong_signature(): void
+    {
+        $service = new FinpayGatewayService();
+
+        $fields = ['order' => ['id' => 'ORD-999', 'amount' => '50000', 'currency' => 'IDR']];
+
+        self::assertFalse($service->verifyFinpaySignature($fields, 'invalidsignature', 'some-key'));
+    }
+
+    public function test_verify_finpay_signature_is_case_insensitive(): void
+    {
+        $service     = new FinpayGatewayService();
+        $merchantKey = 'my-secret';
+
+        $fields = ['merchant' => ['id' => 'M01'], 'order' => ['id' => 'O01', 'amount' => '10000', 'currency' => 'IDR']];
+
+        $signature = hash_hmac(
+            'sha512',
+            json_encode($fields, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            $merchantKey
+        );
+
+        // Both uppercase and lowercase hex should be accepted.
+        self::assertTrue($service->verifyFinpaySignature($fields, strtoupper($signature), $merchantKey));
+        self::assertTrue($service->verifyFinpaySignature($fields, strtolower($signature), $merchantKey));
+    }
+
+    public function test_verify_finpay_signature_rejects_empty_signature(): void
+    {
+        $service = new FinpayGatewayService();
+        $fields  = ['order' => ['id' => 'ORD-1']];
+
+        self::assertFalse($service->verifyFinpaySignature($fields, '', 'some-key'));
+    }
+
+    public function test_verify_finpay_signature_rejects_empty_merchant_key(): void
+    {
+        $service = new FinpayGatewayService();
+        $fields  = ['order' => ['id' => 'ORD-1']];
+
+        self::assertFalse($service->verifyFinpaySignature($fields, 'abc123', ''));
+    }
+
+    // -------------------------------------------------------------------------
+    // Payload normalisation
+    // -------------------------------------------------------------------------
+
+    public function test_normalize_callback_payload_maps_all_top_level_keys(): void
+    {
+        $service = new FinpayGatewayService();
+
+        $raw = [
+            'merchant'     => ['id' => 'MID001'],
+            'customer'     => ['id' => 'CUS001'],
+            'order'        => ['id' => 'ORD-001', 'reference' => 'REF-001', 'amount' => 150000, 'currency' => 'idr'],
+            'card'         => [
+                'mask' => '411111xxxxxx1111',
+                'info' => ['brand' => 'VISA', 'issuing' => 'BCA', 'type' => 'CREDIT', 'subType' => 'GOLD', 'country' => 'ID'],
+            ],
+            'meta'         => ['data' => 'extra-meta'],
+            'result'       => [
+                'payment' => ['status' => 'PAID', 'statusDesc' => 'Success', 'datetime' => '2026-01-01T00:00:00Z'],
+                'flagging' => [
+                    'paymentCode' => 'PC01', 'productCode' => 'PROD01', 'bill' => 'BILL01',
+                    'reffNo' => 'REFF01', 'amount' => '150000', 'customerName' => 'John Doe',
+                    'billingInfo1' => 'B1', 'billingInfo2' => 'B2', 'billingInfo3' => 'B3',
+                    'billingInfo4' => 'B4', 'billingInfo5' => 'B5', 'billingInfo6' => 'B6',
+                    'billingInfo7' => 'B7', 'billingInfo8' => 'B8', 'billingInfo9' => 'B9',
+                    'billingInfo10' => 'B10', 'ntpn' => 'NTPN01', 'ntb' => 'NTB01',
+                    'paymentDateTime' => '2026-01-01T00:00:00Z', 'gmt' => '+07', 'settlementDate' => '2026-01-02',
+                ],
+            ],
+            'sourceOfFunds' => ['type' => 'CARD', 'channel' => 'ONLINE', 'paymentCode' => 'SOF01'],
+            'signature'    => 'should-not-appear',
+        ];
+
+        $normalized = $service->normalizeCallbackPayload($raw);
+
+        // Top-level keys present; signature absent.
+        self::assertArrayHasKey('merchant', $normalized);
+        self::assertArrayHasKey('customer', $normalized);
+        self::assertArrayHasKey('order', $normalized);
+        self::assertArrayHasKey('card', $normalized);
+        self::assertArrayHasKey('meta', $normalized);
+        self::assertArrayHasKey('result', $normalized);
+        self::assertArrayHasKey('sourceOfFunds', $normalized);
+        self::assertArrayNotHasKey('signature', $normalized);
+
+        // order.amount int → string; order.currency uppercased.
+        self::assertSame('150000', $normalized['order']['amount']);
+        self::assertSame('IDR', $normalized['order']['currency']);
+        self::assertSame('ORD-001', $normalized['order']['id']);
+
+        // Nested card.info fields.
+        self::assertSame('VISA', $normalized['card']['info']['brand']);
+        self::assertSame('ID', $normalized['card']['info']['country']);
+
+        // result.payment and result.flagging fields.
+        self::assertSame('PAID', $normalized['result']['payment']['status']);
+        self::assertSame('B10', $normalized['result']['flagging']['billingInfo10']);
+        self::assertSame('+07', $normalized['result']['flagging']['gmt']);
+
+        // sourceOfFunds.
+        self::assertSame('CARD', $normalized['sourceOfFunds']['type']);
+        self::assertSame('SOF01', $normalized['sourceOfFunds']['paymentCode']);
+    }
+
+    public function test_normalize_callback_payload_uses_nulls_for_absent_fields(): void
+    {
+        $service    = new FinpayGatewayService();
+        $normalized = $service->normalizeCallbackPayload([]);
+
+        self::assertNull($normalized['merchant']['id']);
+        self::assertNull($normalized['order']['id']);
+        self::assertNull($normalized['order']['amount']);
+        self::assertNull($normalized['order']['currency']);
+        self::assertNull($normalized['card']['mask']);
+        self::assertNull($normalized['result']['payment']['status']);
+        self::assertNull($normalized['result']['flagging']['ntpn']);
+        self::assertNull($normalized['sourceOfFunds']['type']);
+    }
+
+    public function test_normalize_callback_payload_handles_string_amount(): void
+    {
+        $service    = new FinpayGatewayService();
+        $normalized = $service->normalizeCallbackPayload([
+            'order' => ['id' => 'ORD-X', 'amount' => '75000.50', 'currency' => 'IDR'],
+        ]);
+
+        self::assertSame('75000.50', $normalized['order']['amount']);
+    }
 }

@@ -30,6 +30,7 @@
         "illuminate/http": "*",
         "illuminate/config": "*",
         "illuminate/routing": "*",
+        "illuminate/bus": "*",
         "rublex/laravel-core-gateway": "1.0.0",
         "illuminate/database": "*"
     },
