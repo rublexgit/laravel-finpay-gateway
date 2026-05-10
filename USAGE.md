@@ -89,6 +89,47 @@ $result = $gateway->initiate(new PaymentRequestData(
 ));
 ```
 
+## Choosing a payment channel
+
+The driver can ask Finpay to render a specific channel by setting `meta.payment_method`
+on the `PaymentRequestData`. The string is matched against
+`FinpayGatewayService::PAYMENT_METHODS` and translated to Finpay's
+`sourceOfFunds.type` field on the initiate request.
+
+Currently catalogued keys (see the constant for the source of truth):
+
+```
+cc, googlepay, applepay, qris,
+dana, ovo, shopeepay, linkaja, finpaymoney, jeniuspay, virgo,
+vabca, vabni, vabri, vamandiri, vapermata,
+bcaklikpay, octoclicks, permatanet, debitatmbersama,
+finpaycode, indodana
+```
+
+Example:
+
+```php
+$gateway->initiate(new PaymentRequestData(
+    gatewayCode: $gateway->code(),
+    orderId: 'INV-1',
+    amount: '10',
+    currency: 'IDR',
+    callbackUrl: 'https://merchant.example/callback',
+    meta: new DynamicDataBag(['payment_method' => 'googlepay']),
+));
+```
+
+If `meta.payment_method` is omitted (or unknown), the driver does **not** set
+`sourceOfFunds` on the initiate body — Finpay's hosted payment page lets the
+customer pick the channel, matching pre-update behaviour.
+
+Channel-specific extras (e.g. `paymentCode` for VAs) can be passed verbatim
+under `meta.sourceOfFunds`; that array is merged on top of the resolved type.
+
+> Note: `googlepay`/`applepay` are placeholders kept for parity with the
+> Aviagram driver. Finpay must whitelist them on the merchant account for the
+> initiate call to succeed at runtime.
+
 ## Migration note
 
 - Existing facade and wrapper method signatures are unchanged.

@@ -31,6 +31,45 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
     private const CHECK_CARD_PATH = '/sof/bp/checkCard/';
     private const TRANSACTIONS_TABLE = 'finpay_transactions';
 
+    public const DEFAULT_PAYMENT_METHOD = 'cc';
+
+    /**
+     * Catalog of payment methods this driver can request from Finpay. Each entry
+     * maps a stable identifier (used by callers and by the FiatGateway admin UI)
+     * to the `sourceOfFunds.type` value Finpay expects on the initiate call.
+     *
+     * Channels documented at https://hub.finpay.id/docs/finpay-pg/api are listed
+     * here verbatim. `googlepay` and `applepay` are placeholders kept for parity
+     * with the Aviagram driver — Finpay must whitelist them on the merchant
+     * account before they will succeed at runtime.
+     *
+     * @var array<string, array{label: string, source_of_funds: string}>
+     */
+    public const PAYMENT_METHODS = [
+        'cc'              => ['label' => 'Credit / Debit Card', 'source_of_funds' => 'cc'],
+        'googlepay'       => ['label' => 'Google Pay',          'source_of_funds' => 'googlepay'],
+        'applepay'        => ['label' => 'Apple Pay',           'source_of_funds' => 'applepay'],
+        'qris'            => ['label' => 'QRIS',                'source_of_funds' => 'qris'],
+        'dana'            => ['label' => 'DANA',                'source_of_funds' => 'dana'],
+        'ovo'             => ['label' => 'OVO',                 'source_of_funds' => 'ovo'],
+        'shopeepay'       => ['label' => 'ShopeePay',           'source_of_funds' => 'shopeepay'],
+        'linkaja'         => ['label' => 'LinkAja',             'source_of_funds' => 'linkaja'],
+        'finpaymoney'     => ['label' => 'Finpay Money',        'source_of_funds' => 'finpaymoney'],
+        'jeniuspay'       => ['label' => 'Jenius Pay',          'source_of_funds' => 'jeniuspay'],
+        'virgo'           => ['label' => 'Virgo',               'source_of_funds' => 'virgo'],
+        'vabca'           => ['label' => 'Virtual Account BCA', 'source_of_funds' => 'vabca'],
+        'vabni'           => ['label' => 'Virtual Account BNI', 'source_of_funds' => 'vabni'],
+        'vabri'           => ['label' => 'Virtual Account BRI', 'source_of_funds' => 'vabri'],
+        'vamandiri'       => ['label' => 'Virtual Account Mandiri', 'source_of_funds' => 'vamandiri'],
+        'vapermata'       => ['label' => 'Virtual Account Permata', 'source_of_funds' => 'vapermata'],
+        'bcaklikpay'      => ['label' => 'BCA KlikPay',         'source_of_funds' => 'bcaklikpay'],
+        'octoclicks'      => ['label' => 'OCTO Clicks',         'source_of_funds' => 'octoclicks'],
+        'permatanet'      => ['label' => 'PermataNet',          'source_of_funds' => 'permatanet'],
+        'debitatmbersama' => ['label' => 'Debit ATM Bersama',   'source_of_funds' => 'debitatmbersama'],
+        'finpaycode'      => ['label' => 'Finpay Code',         'source_of_funds' => 'finpaycode'],
+        'indodana'        => ['label' => 'Indodana Paylater',   'source_of_funds' => 'indodana'],
+    ];
+
     public function code(): string
     {
         return 'finpay';
@@ -39,6 +78,23 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
     public function type(): GatewayType
     {
         return GatewayType::FIAT;
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, source_of_funds: string}>
+     */
+    public static function availablePaymentMethods(): array
+    {
+        $methods = [];
+        foreach (self::PAYMENT_METHODS as $key => $meta) {
+            $methods[] = [
+                'key'             => $key,
+                'label'           => $meta['label'],
+                'source_of_funds' => $meta['source_of_funds'],
+            ];
+        }
+
+        return $methods;
     }
 
     public function initiate(PaymentRequestData $request): PaymentInitResultData
@@ -64,13 +120,23 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
             $request->currency(),
         );
 
-        $responsePayload = $this->sendInitiateRequest([
+        $body = [
             'customer' => $this->resolveCustomerPayload($request),
             'order' => $this->resolveOrderPayload($request),
             'url' => [
                 'callbackUrl' => $this->resolveGatewayCallbackUrl($callbackKey),
             ],
-        ]);
+        ];
+
+        // Only include sourceOfFunds when the caller explicitly asked for a
+        // channel. An absent value preserves pre-update behaviour: Finpay's
+        // payment-page picker decides for the customer.
+        $sourceOfFunds = $this->resolveSourceOfFundsPayload($request);
+        if ($sourceOfFunds !== []) {
+            $body['sourceOfFunds'] = $sourceOfFunds;
+        }
+
+        $responsePayload = $this->sendInitiateRequest($body);
         $this->storeInitTransaction($request->orderId(), $responsePayload);
 
         return $this->mapInitResponseToResult($responsePayload);
@@ -629,6 +695,49 @@ class FinpayGatewayService implements GatewayInterface, InitiatesPaymentInterfac
             'amount' => $request->amount(),
             'currency' => $request->currency(),
         ], $orderOverrides);
+    }
+
+    /**
+     * Build the `sourceOfFunds` block for the initiate request.
+     *
+     * The caller selects the payment method by passing one of:
+     *   - `meta.payment_method`      (preferred — same key as Aviagram for parity)
+     *   - `meta.sourceOfFunds.type`  (full passthrough — wins over payment_method)
+     *
+     * When neither is provided this method returns `[]`, signalling to the
+     * caller in `initiate()` to omit `sourceOfFunds` from the request body
+     * entirely. That preserves the pre-update behaviour where Finpay's hosted
+     * payment page lets the customer pick the channel.
+     *
+     * Unknown payment_method keys also fall through to "no channel selected"
+     * rather than guessing, so callers never silently send the wrong sourceOfFunds.
+     * Any extra keys provided under meta.sourceOfFunds (e.g. paymentCode for VAs)
+     * are merged on top of the resolved type.
+     *
+     * @return array<string, mixed>
+     */
+    protected function resolveSourceOfFundsPayload(PaymentRequestData $request): array
+    {
+        $overrides = $request->meta()->get('sourceOfFunds', []);
+        if (!is_array($overrides)) {
+            $overrides = [];
+        }
+
+        if (isset($overrides['type']) && is_string($overrides['type']) && trim($overrides['type']) !== '') {
+            return $overrides;
+        }
+
+        $paymentMethod = $request->meta()->get('payment_method');
+        if (!is_string($paymentMethod) || trim($paymentMethod) === '') {
+            return $overrides;
+        }
+
+        $methodKey = strtolower(trim($paymentMethod));
+        if (!isset(self::PAYMENT_METHODS[$methodKey])) {
+            return $overrides;
+        }
+
+        return array_replace(['type' => self::PAYMENT_METHODS[$methodKey]['source_of_funds']], $overrides);
     }
 
     /**
